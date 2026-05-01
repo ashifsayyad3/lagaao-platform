@@ -30,7 +30,8 @@
     "@radix-ui/react-slot": "^1.1.0",
     "@radix-ui/react-label": "^2.1.0",
     "@radix-ui/react-separator": "^1.1.0",
-    "sonner": "^1.5.0"
+    "sonner": "^1.5.0",
+    "tailwindcss-animate": "^1.0.7"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
@@ -41,6 +42,7 @@
     "postcss": "^8.4.38",
     "autoprefixer": "^10.4.19",
     "eslint": "^8.57.0",
-    "eslint-config-next": "14.2.3"
+    "eslint-config-next": "14.2.3",
+    "@tanstack/react-query-devtools": "^5.40.0"
   }
 }

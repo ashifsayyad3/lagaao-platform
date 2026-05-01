@@ -1,0 +1,42 @@
+# Dependencies
+**/node_modules
+**/.npm
+
+# Build outputs
+**/dist
+**/.next
+**/build
+**/.turbo
+
+# Test & coverage
+**/coverage
+**/*.spec.ts
+**/*.test.ts
+**/__tests__
+
+# Dev config & local env files
+**/.env.local
+**/.env.development
+**/.env.*.local
+
+# IDE / OS
+**/.vscode
+**/.idea
+**/.DS_Store
+**/Thumbs.db
+
+# Logs
+**/logs
+**/*.log
+**/npm-debug.log*
+
+# Docker itself
+**/Dockerfile*
+**/.dockerignore
+infrastructure/
+
+# Misc
+**/.git
+**/.gitignore
+**/README.md
+**/CLAUDE.md
