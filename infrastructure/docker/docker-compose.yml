@@ -1,0 +1,173 @@
+version: "3.9"
+
+services:
+  # ── MySQL ──────────────────────────────────────────────────────────────────
+  mysql:
+    image: mysql:8.0
+    container_name: lagaao-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DATABASE_PASSWORD:-password}
+      MYSQL_DATABASE: ${DATABASE_NAME:-lagaao_db}
+      MYSQL_USER: ${DATABASE_USER:-lagaao}
+      MYSQL_PASSWORD: ${DATABASE_PASSWORD:-password}
+    ports:
+      - "${DATABASE_PORT:-3306}:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - lagaao-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: lagaao-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${REDIS_PASSWORD:-}
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - lagaao-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # ── API Gateway ───────────────────────────────────────────────────────────
+  api-gateway:
+    build:
+      context: ../../backend/api-gateway
+      dockerfile: Dockerfile
+    container_name: lagaao-api-gateway
+    restart: unless-stopped
+    ports:
+      - "${API_GATEWAY_PORT:-4000}:4000"
+    env_file:
+      - ../../.env
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - lagaao-network
+
+  # ── Auth Service ──────────────────────────────────────────────────────────
+  auth-service:
+    build:
+      context: ../../backend/services/auth-service
+      dockerfile: Dockerfile
+    container_name: lagaao-auth-service
+    restart: unless-stopped
+    ports:
+      - "${AUTH_SERVICE_PORT:-4001}:4001"
+    env_file:
+      - ../../.env
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - lagaao-network
+
+  # ── Product Service ───────────────────────────────────────────────────────
+  product-service:
+    build:
+      context: ../../backend/services/product-service
+      dockerfile: Dockerfile
+    container_name: lagaao-product-service
+    restart: unless-stopped
+    ports:
+      - "${PRODUCT_SERVICE_PORT:-4002}:4002"
+    env_file:
+      - ../../.env
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - lagaao-network
+
+  # ── Cart Service ──────────────────────────────────────────────────────────
+  cart-service:
+    build:
+      context: ../../backend/services/cart-service
+      dockerfile: Dockerfile
+    container_name: lagaao-cart-service
+    restart: unless-stopped
+    ports:
+      - "${CART_SERVICE_PORT:-4003}:4003"
+    env_file:
+      - ../../.env
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - lagaao-network
+
+  # ── Order Service ─────────────────────────────────────────────────────────
+  order-service:
+    build:
+      context: ../../backend/services/order-service
+      dockerfile: Dockerfile
+    container_name: lagaao-order-service
+    restart: unless-stopped
+    ports:
+      - "${ORDER_SERVICE_PORT:-4004}:4004"
+    env_file:
+      - ../../.env
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - lagaao-network
+
+  # ── Payment Service ───────────────────────────────────────────────────────
+  payment-service:
+    build:
+      context: ../../backend/services/payment-service
+      dockerfile: Dockerfile
+    container_name: lagaao-payment-service
+    restart: unless-stopped
+    ports:
+      - "${PAYMENT_SERVICE_PORT:-4005}:4005"
+    env_file:
+      - ../../.env
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - lagaao-network
+
+  # ── Frontend ──────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    container_name: lagaao-frontend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - ../../.env
+    depends_on:
+      - api-gateway
+    networks:
+      - lagaao-network
+
+volumes:
+  mysql_data:
+  redis_data:
+
+networks:
+  lagaao-network:
+    driver: bridge

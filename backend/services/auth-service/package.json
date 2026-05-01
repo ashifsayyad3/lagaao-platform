@@ -1,0 +1,43 @@
+{
+  "name": "@lagaao/auth-service",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build": "nest build",
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "start:prod": "node dist/main",
+    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
+    "test": "jest",
+    "test:cov": "jest --coverage"
+  },
+  "dependencies": {
+    "@nestjs/common": "^10.3.9",
+    "@nestjs/core": "^10.3.9",
+    "@nestjs/platform-express": "^10.3.9",
+    "@nestjs/jwt": "^10.2.0",
+    "@nestjs/passport": "^10.0.3",
+    "@nestjs/config": "^3.2.2",
+    "@prisma/client": "^5.15.0",
+    "passport": "^0.7.0",
+    "passport-jwt": "^4.0.1",
+    "passport-local": "^1.0.0",
+    "passport-google-oauth20": "^2.0.0",
+    "bcryptjs": "^2.4.3",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^10.3.2",
+    "@nestjs/testing": "^10.3.9",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.14.0",
+    "@types/passport-google-oauth20": "^2.0.16",
+    "prisma": "^5.15.0",
+    "typescript": "^5.4.5",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.5",
+    "ts-node": "^10.9.2"
+  }
+}

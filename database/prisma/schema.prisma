@@ -1,0 +1,410 @@
+// Prisma schema for lagaao.com
+// MySQL 8 · uuid() PKs · utf8mb4
+// Run: npx prisma generate && npx prisma migrate dev --name init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENUMS
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  CUSTOMER
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  PROCESSING
+  SHIPPED
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+  RETURN_REQUESTED
+  RETURNED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  REFUNDED
+  PARTIALLY_REFUNDED
+}
+
+enum PaymentMethod {
+  RAZORPAY_UPI
+  RAZORPAY_CARD
+  RAZORPAY_NETBANKING
+  RAZORPAY_WALLET
+  COD
+}
+
+enum CouponType {
+  PERCENTAGE
+  FLAT
+  FREE_SHIPPING
+}
+
+enum AddressType {
+  HOME
+  WORK
+  OTHER
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// USER & AUTH
+// ─────────────────────────────────────────────────────────────────────────────
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique @db.VarChar(255)
+  phone        String?   @unique @db.VarChar(15)
+  passwordHash String?   @db.VarChar(255)
+  firstName    String    @db.VarChar(100)
+  lastName     String?   @db.VarChar(100)
+  avatarUrl    String?   @db.VarChar(500)
+  role         UserRole  @default(CUSTOMER)
+  isVerified   Boolean   @default(false)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  addresses    Address[]
+  orders       Order[]
+  cart         Cart?
+  reviews      Review[]
+  couponUsages CouponUsage[]
+
+  @@index([email])
+  @@index([phone])
+  @@index([role])
+  @@map("users")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ADDRESS
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Address {
+  id         String      @id @default(uuid())
+  userId     String
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       AddressType @default(HOME)
+  fullName   String      @db.VarChar(150)
+  phone      String      @db.VarChar(15)
+  line1      String      @db.VarChar(255)
+  line2      String?     @db.VarChar(255)
+  landmark   String?     @db.VarChar(255)
+  city       String      @db.VarChar(100)
+  state      String      @db.VarChar(100)
+  pincode    String      @db.VarChar(10)
+  country    String      @default("India") @db.VarChar(100)
+  isDefault  Boolean     @default(false)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  orders     Order[]
+
+  @@index([userId])
+  @@map("addresses")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CATEGORY
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Category {
+  id          String      @id @default(uuid())
+  name        String      @db.VarChar(150)
+  slug        String      @unique @db.VarChar(150)
+  description String?     @db.Text
+  imageUrl    String?     @db.VarChar(500)
+  metaTitle   String?     @db.VarChar(200)
+  metaDesc    String?     @db.VarChar(300)
+  sortOrder   Int         @default(0)
+  isActive    Boolean     @default(true)
+  parentId    String?
+  parent      Category?   @relation("CategoryTree", fields: [parentId], references: [id])
+  children    Category[]  @relation("CategoryTree")
+  products    Product[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  @@index([slug])
+  @@index([parentId])
+  @@map("categories")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PRODUCT
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Product {
+  id           String           @id @default(uuid())
+  name         String           @db.VarChar(255)
+  slug         String           @unique @db.VarChar(255)
+  description  String?          @db.LongText
+  shortDesc    String?          @db.VarChar(500)
+  sku          String?          @unique @db.VarChar(100)
+  price        Decimal          @db.Decimal(10, 2)   // selling price (INR)
+  mrp          Decimal          @db.Decimal(10, 2)   // maximum retail price
+  costPrice    Decimal?         @db.Decimal(10, 2)   // for margin tracking
+  stock        Int              @default(0)
+  lowStockAt   Int              @default(5)          // alert threshold
+  weight       Decimal?         @db.Decimal(8, 3)    // kg, for shipping calc
+  isActive     Boolean          @default(true)
+  isFeatured   Boolean          @default(false)
+  categoryId   String
+  category     Category         @relation(fields: [categoryId], references: [id])
+  images       ProductImage[]
+  cartItems    CartItem[]
+  orderItems   OrderItem[]
+  reviews      Review[]
+  metaTitle    String?          @db.VarChar(200)
+  metaDesc     String?          @db.VarChar(300)
+  tags         String?          @db.VarChar(500)     // comma-separated
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  @@index([slug])
+  @@index([categoryId])
+  @@index([isActive, isFeatured])
+  @@index([price])
+  @@map("products")
+}
+
+model ProductImage {
+  id        String   @id @default(uuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String   @db.VarChar(500)
+  altText   String?  @db.VarChar(255)
+  isPrimary Boolean  @default(false)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@index([productId])
+  @@map("product_images")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CART
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Cart {
+  id        String     @id @default(uuid())
+  userId    String     @unique
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items     CartItem[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@map("carts")
+}
+
+model CartItem {
+  id        String   @id @default(uuid())
+  cartId    String
+  cart      Cart     @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  quantity  Int      @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([cartId, productId])
+  @@index([cartId])
+  @@map("cart_items")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ORDER
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Order {
+  id             String      @id @default(uuid())
+  orderNumber    String      @unique @db.VarChar(20)  // e.g. LG-20240601-0001
+  userId         String
+  user           User        @relation(fields: [userId], references: [id])
+  addressId      String
+  address        Address     @relation(fields: [addressId], references: [id])
+  status         OrderStatus @default(PENDING)
+
+  // Pricing breakdown (all INR)
+  subtotal       Decimal     @db.Decimal(10, 2)
+  shippingCharge Decimal     @default(0) @db.Decimal(10, 2)
+  taxAmount      Decimal     @default(0) @db.Decimal(10, 2)
+  discountAmount Decimal     @default(0) @db.Decimal(10, 2)
+  total          Decimal     @db.Decimal(10, 2)
+
+  couponId       String?
+  coupon         Coupon?     @relation(fields: [couponId], references: [id])
+  notes          String?     @db.VarChar(500)
+  cancelReason   String?     @db.VarChar(500)
+
+  items          OrderItem[]
+  payment        Payment?
+  statusHistory  OrderStatusHistory[]
+
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([orderNumber])
+  @@map("orders")
+}
+
+model OrderItem {
+  id            String   @id @default(uuid())
+  orderId       String
+  order         Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId     String
+  product       Product  @relation(fields: [productId], references: [id])
+
+  // Snapshot at time of purchase (product data may change later)
+  productName   String   @db.VarChar(255)
+  productSku    String?  @db.VarChar(100)
+  productImage  String?  @db.VarChar(500)
+  quantity      Int
+  unitPrice     Decimal  @db.Decimal(10, 2)
+  totalPrice    Decimal  @db.Decimal(10, 2)
+
+  createdAt     DateTime @default(now())
+
+  @@index([orderId])
+  @@index([productId])
+  @@map("order_items")
+}
+
+model OrderStatusHistory {
+  id        String      @id @default(uuid())
+  orderId   String
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    OrderStatus
+  note      String?     @db.VarChar(500)
+  changedBy String?     @db.VarChar(100)  // userId or "system"
+  createdAt DateTime    @default(now())
+
+  @@index([orderId])
+  @@map("order_status_history")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PAYMENT  (Razorpay-first)
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Payment {
+  id String @id @default(uuid())
+
+  orderId String @unique
+  order   Order  @relation(fields: [orderId], references: [id])
+
+  // Razorpay identifiers
+  rzpOrderId    String?  @unique @db.VarChar(100)  // order_xxxxxxxxxx
+  rzpPaymentId  String?  @unique @db.VarChar(100)  // pay_xxxxxxxxxx
+  rzpSignature  String?  @db.VarChar(500)           // HMAC-SHA256 verification
+
+  method        PaymentMethod @default(RAZORPAY_UPI)
+  status        PaymentStatus @default(PENDING)
+  amount        Decimal       @db.Decimal(10, 2)    // INR
+  currency      String        @default("INR") @db.VarChar(5)
+  amountRefunded Decimal      @default(0) @db.Decimal(10, 2)
+
+  // Raw Razorpay webhook payload for audit
+  gatewayResponse Json?
+
+  failureCode    String?  @db.VarChar(100)
+  failureMessage String?  @db.VarChar(500)
+  paidAt         DateTime?
+  refundedAt     DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([rzpOrderId])
+  @@index([rzpPaymentId])
+  @@index([status])
+  @@map("payments")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// REVIEW
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Review {
+  id            String   @id @default(uuid())
+  productId     String
+  product       Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User     @relation(fields: [userId], references: [id])
+  rating        Int      // 1–5
+  title         String?  @db.VarChar(200)
+  body          String?  @db.Text
+  isVerifiedPurchase Boolean @default(false)
+  isApproved    Boolean  @default(false)
+  helpfulCount  Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([productId, userId])
+  @@index([productId, isApproved])
+  @@index([userId])
+  @@map("reviews")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COUPON
+// ─────────────────────────────────────────────────────────────────────────────
+
+model Coupon {
+  id              String     @id @default(uuid())
+  code            String     @unique @db.VarChar(50)
+  type            CouponType
+  value           Decimal    @db.Decimal(10, 2)   // % or flat ₹ amount
+  minOrderAmount  Decimal    @default(0) @db.Decimal(10, 2)
+  maxDiscount     Decimal?   @db.Decimal(10, 2)   // cap for PERCENTAGE coupons
+  usageLimit      Int?                             // null = unlimited
+  usageCount      Int        @default(0)
+  perUserLimit    Int        @default(1)
+  isActive        Boolean    @default(true)
+  startsAt        DateTime   @default(now())
+  expiresAt       DateTime?
+  description     String?    @db.VarChar(300)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  orders          Order[]
+  usages          CouponUsage[]
+
+  @@index([code])
+  @@index([isActive, expiresAt])
+  @@map("coupons")
+}
+
+model CouponUsage {
+  id        String   @id @default(uuid())
+  couponId  String
+  coupon    Coupon   @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  orderId   String   @unique @db.VarChar(36)
+  usedAt    DateTime @default(now())
+
+  @@unique([couponId, userId, orderId])
+  @@index([couponId])
+  @@index([userId])
+  @@map("coupon_usages")
+}
