@@ -1,35 +1,27 @@
-# ── Stage 1: build ───────────────────────────────────────────────────────────
+# ── Stage 1: install all deps + generate Prisma client + compile ──────────────
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# Copy root manifest (workspaces) and lock file
-COPY package*.json ./
+# Layer-cache: copy manifests before source so a source change doesn't bust deps
+COPY database/prisma                                      ./database/prisma
+COPY backend/services/auth-service/package*.json         ./backend/services/auth-service/
+COPY backend/services/auth-service/tsconfig*.json        ./backend/services/auth-service/
+COPY backend/services/auth-service/nest-cli.json         ./backend/services/auth-service/
 
-# Copy the shared Prisma schema
-COPY database/prisma ./database/prisma
-
-# Copy this service's manifest so npm can resolve its deps
-COPY backend/services/auth-service/package*.json ./backend/services/auth-service/
-
-# Install only this service's dependencies (no hoisting needed inside Docker)
 WORKDIR /app/backend/services/auth-service
+
+# Full install (devDeps needed for tsc / nest build)
 RUN npm install --ignore-scripts
 
-# Copy source
-WORKDIR /app
-COPY backend/services/auth-service ./backend/services/auth-service
+# Generate Prisma client — runs from service dir so .prisma lands in ./node_modules
+RUN npx prisma generate --schema=/app/database/prisma/schema.prisma
 
-# Generate Prisma client pointing to the shared schema
-RUN npx prisma generate \
-      --schema=/app/database/prisma/schema.prisma \
-      --generator client \
-    && mv /app/node_modules/.prisma /app/backend/services/auth-service/node_modules/.prisma 2>/dev/null || true
-
-WORKDIR /app/backend/services/auth-service
+# Copy source and compile
+COPY backend/services/auth-service/src ./src
 RUN npm run build
 
-# ── Stage 2: production image ─────────────────────────────────────────────────
+# ── Stage 2: lean production image ───────────────────────────────────────────
 FROM node:20-alpine AS runner
 
 RUN addgroup --system --gid 1001 nodejs \
@@ -37,9 +29,21 @@ RUN addgroup --system --gid 1001 nodejs \
 
 WORKDIR /app
 
-COPY --from=builder --chown=nestjs:nodejs /app/backend/services/auth-service/dist        ./dist
-COPY --from=builder --chown=nestjs:nodejs /app/backend/services/auth-service/node_modules ./node_modules
-COPY --from=builder --chown=nestjs:nodejs /app/database/prisma                            ./database/prisma
+# Re-install production-only deps for a smaller node_modules
+COPY --chown=nestjs:nodejs backend/services/auth-service/package*.json ./
+RUN npm ci --omit=dev --ignore-scripts
+
+# Copy Prisma query engine binary that was compiled in the builder stage
+COPY --from=builder --chown=nestjs:nodejs \
+     /app/backend/services/auth-service/node_modules/.prisma \
+     ./node_modules/.prisma
+
+# Copy schema (Prisma needs it at runtime for migrations / introspection)
+COPY --from=builder --chown=nestjs:nodejs /app/database/prisma ./database/prisma
+
+# Copy compiled application
+COPY --from=builder --chown=nestjs:nodejs \
+     /app/backend/services/auth-service/dist ./dist
 
 USER nestjs
 

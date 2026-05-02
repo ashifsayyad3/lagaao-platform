@@ -1,26 +1,23 @@
+# ── Stage 1: build ────────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-COPY package*.json ./
-COPY database/prisma ./database/prisma
-COPY backend/services/cart-service/package*.json ./backend/services/cart-service/
+COPY database/prisma                                     ./database/prisma
+COPY backend/services/cart-service/package*.json        ./backend/services/cart-service/
+COPY backend/services/cart-service/tsconfig*.json       ./backend/services/cart-service/
+COPY backend/services/cart-service/nest-cli.json        ./backend/services/cart-service/
 
 WORKDIR /app/backend/services/cart-service
+
 RUN npm install --ignore-scripts
 
-WORKDIR /app
-COPY backend/services/cart-service ./backend/services/cart-service
+RUN npx prisma generate --schema=/app/database/prisma/schema.prisma
 
-RUN npx prisma generate \
-      --schema=/app/database/prisma/schema.prisma \
-      --generator client \
-    && mv /app/node_modules/.prisma /app/backend/services/cart-service/node_modules/.prisma 2>/dev/null || true
-
-WORKDIR /app/backend/services/cart-service
+COPY backend/services/cart-service/src ./src
 RUN npm run build
 
-# ── runner ────────────────────────────────────────────────────────────────────
+# ── Stage 2: runner ───────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
 
 RUN addgroup --system --gid 1001 nodejs \
@@ -28,9 +25,16 @@ RUN addgroup --system --gid 1001 nodejs \
 
 WORKDIR /app
 
-COPY --from=builder --chown=nestjs:nodejs /app/backend/services/cart-service/dist        ./dist
-COPY --from=builder --chown=nestjs:nodejs /app/backend/services/cart-service/node_modules ./node_modules
-COPY --from=builder --chown=nestjs:nodejs /app/database/prisma                            ./database/prisma
+COPY --chown=nestjs:nodejs backend/services/cart-service/package*.json ./
+RUN npm ci --omit=dev --ignore-scripts
+
+COPY --from=builder --chown=nestjs:nodejs \
+     /app/backend/services/cart-service/node_modules/.prisma \
+     ./node_modules/.prisma
+
+COPY --from=builder --chown=nestjs:nodejs /app/database/prisma ./database/prisma
+COPY --from=builder --chown=nestjs:nodejs \
+     /app/backend/services/cart-service/dist ./dist
 
 USER nestjs
 

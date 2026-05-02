@@ -1,21 +1,20 @@
+# ── Stage 1: build ────────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-COPY package*.json ./
-COPY database/prisma ./database/prisma
-COPY backend/api-gateway/package*.json ./backend/api-gateway/
+COPY backend/api-gateway/package*.json  ./backend/api-gateway/
+COPY backend/api-gateway/tsconfig*.json ./backend/api-gateway/
+COPY backend/api-gateway/nest-cli.json  ./backend/api-gateway/
 
 WORKDIR /app/backend/api-gateway
+
 RUN npm install --ignore-scripts
 
-WORKDIR /app
-COPY backend/api-gateway ./backend/api-gateway
-
-WORKDIR /app/backend/api-gateway
+COPY backend/api-gateway/src ./src
 RUN npm run build
 
-# ── runner ────────────────────────────────────────────────────────────────────
+# ── Stage 2: runner ───────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
 
 RUN addgroup --system --gid 1001 nodejs \
@@ -23,8 +22,10 @@ RUN addgroup --system --gid 1001 nodejs \
 
 WORKDIR /app
 
-COPY --from=builder --chown=nestjs:nodejs /app/backend/api-gateway/dist        ./dist
-COPY --from=builder --chown=nestjs:nodejs /app/backend/api-gateway/node_modules ./node_modules
+COPY --chown=nestjs:nodejs backend/api-gateway/package*.json ./
+RUN npm ci --omit=dev --ignore-scripts
+
+COPY --from=builder --chown=nestjs:nodejs /app/backend/api-gateway/dist ./dist
 
 USER nestjs
 

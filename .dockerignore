@@ -1,42 +1,36 @@
-# Dependencies
+# ── Build artefacts ──────────────────────────────────────────────────────────
 **/node_modules
-**/.npm
-
-# Build outputs
 **/dist
 **/.next
 **/build
 **/.turbo
-
-# Test & coverage
 **/coverage
+
+# ── Test files ────────────────────────────────────────────────────────────────
 **/*.spec.ts
 **/*.test.ts
 **/__tests__
 
-# Dev config & local env files
+# ── Local / dev env ───────────────────────────────────────────────────────────
 **/.env.local
 **/.env.development
 **/.env.*.local
 
-# IDE / OS
+# ── IDE / OS ──────────────────────────────────────────────────────────────────
 **/.vscode
 **/.idea
 **/.DS_Store
 **/Thumbs.db
 
-# Logs
+# ── Logs ──────────────────────────────────────────────────────────────────────
 **/logs
 **/*.log
 **/npm-debug.log*
 
-# Docker itself
-**/Dockerfile*
-**/.dockerignore
-infrastructure/
-
-# Misc
+# ── VCS ───────────────────────────────────────────────────────────────────────
 **/.git
 **/.gitignore
+
+# ── Docs / meta ───────────────────────────────────────────────────────────────
 **/README.md
 **/CLAUDE.md

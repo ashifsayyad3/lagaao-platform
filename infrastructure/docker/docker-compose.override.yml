@@ -1,0 +1,79 @@
+# ── Development overrides ─────────────────────────────────────────────────────
+# Usage:  docker compose -f docker-compose.yml -f docker-compose.override.yml up
+#
+# This file replaces the compiled production images with live-reload containers
+# that mount source code directly. Run `npm install` locally first so the bind-
+# mounted node_modules work inside the container.
+
+version: "3.9"
+
+services:
+
+  auth-service:
+    build:
+      target: builder
+    command: ["npx", "nest", "start", "--watch"]
+    volumes:
+      - ../../backend/services/auth-service/src:/app/src:ro
+      - ../../database/prisma:/app/database/prisma:ro
+    environment:
+      NODE_ENV: development
+
+  product-service:
+    build:
+      target: builder
+    command: ["npx", "nest", "start", "--watch"]
+    volumes:
+      - ../../backend/services/product-service/src:/app/src:ro
+      - ../../database/prisma:/app/database/prisma:ro
+    environment:
+      NODE_ENV: development
+
+  cart-service:
+    build:
+      target: builder
+    command: ["npx", "nest", "start", "--watch"]
+    volumes:
+      - ../../backend/services/cart-service/src:/app/src:ro
+      - ../../database/prisma:/app/database/prisma:ro
+    environment:
+      NODE_ENV: development
+
+  order-service:
+    build:
+      target: builder
+    command: ["npx", "nest", "start", "--watch"]
+    volumes:
+      - ../../backend/services/order-service/src:/app/src:ro
+      - ../../database/prisma:/app/database/prisma:ro
+    environment:
+      NODE_ENV: development
+
+  payment-service:
+    build:
+      target: builder
+    command: ["npx", "nest", "start", "--watch"]
+    volumes:
+      - ../../backend/services/payment-service/src:/app/src:ro
+      - ../../database/prisma:/app/database/prisma:ro
+    environment:
+      NODE_ENV: development
+
+  api-gateway:
+    build:
+      target: builder
+    command: ["npx", "nest", "start", "--watch"]
+    volumes:
+      - ../../backend/api-gateway/src:/app/src:ro
+    environment:
+      NODE_ENV: development
+
+  frontend:
+    build:
+      target: builder
+    command: ["npm", "run", "dev"]
+    volumes:
+      - ../../frontend/src:/app/src:ro
+      - ../../frontend/public:/app/public:ro
+    environment:
+      NODE_ENV: development

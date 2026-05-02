@@ -1,26 +1,23 @@
+# ── Stage 1: build ────────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-COPY package*.json ./
-COPY database/prisma ./database/prisma
-COPY backend/services/order-service/package*.json ./backend/services/order-service/
+COPY database/prisma                                      ./database/prisma
+COPY backend/services/order-service/package*.json        ./backend/services/order-service/
+COPY backend/services/order-service/tsconfig*.json       ./backend/services/order-service/
+COPY backend/services/order-service/nest-cli.json        ./backend/services/order-service/
 
 WORKDIR /app/backend/services/order-service
+
 RUN npm install --ignore-scripts
 
-WORKDIR /app
-COPY backend/services/order-service ./backend/services/order-service
+RUN npx prisma generate --schema=/app/database/prisma/schema.prisma
 
-RUN npx prisma generate \
-      --schema=/app/database/prisma/schema.prisma \
-      --generator client \
-    && mv /app/node_modules/.prisma /app/backend/services/order-service/node_modules/.prisma 2>/dev/null || true
-
-WORKDIR /app/backend/services/order-service
+COPY backend/services/order-service/src ./src
 RUN npm run build
 
-# ── runner ────────────────────────────────────────────────────────────────────
+# ── Stage 2: runner ───────────────────────────────────────────────────────────
 FROM node:20-alpine AS runner
 
 RUN addgroup --system --gid 1001 nodejs \
@@ -28,9 +25,16 @@ RUN addgroup --system --gid 1001 nodejs \
 
 WORKDIR /app
 
-COPY --from=builder --chown=nestjs:nodejs /app/backend/services/order-service/dist        ./dist
-COPY --from=builder --chown=nestjs:nodejs /app/backend/services/order-service/node_modules ./node_modules
-COPY --from=builder --chown=nestjs:nodejs /app/database/prisma                             ./database/prisma
+COPY --chown=nestjs:nodejs backend/services/order-service/package*.json ./
+RUN npm ci --omit=dev --ignore-scripts
+
+COPY --from=builder --chown=nestjs:nodejs \
+     /app/backend/services/order-service/node_modules/.prisma \
+     ./node_modules/.prisma
+
+COPY --from=builder --chown=nestjs:nodejs /app/database/prisma ./database/prisma
+COPY --from=builder --chown=nestjs:nodejs \
+     /app/backend/services/order-service/dist ./dist
 
 USER nestjs
 
