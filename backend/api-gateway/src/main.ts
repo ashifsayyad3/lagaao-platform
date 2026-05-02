@@ -8,20 +8,25 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
-    // rawBody needed for Razorpay webhook proxying (preserves exact bytes)
-    rawBody: true,
-    logger: ['log', 'warn', 'error', 'debug'],
+    rawBody: true,   // preserves exact bytes for Razorpay webhook HMAC
+    logger: ['log', 'warn', 'error'],
   });
 
-  const config = app.get(ConfigService);
+  const config      = app.get(ConfigService);
   const port        = config.get<number>('API_GATEWAY_PORT', 4000);
   const frontendUrl = config.get<string>('FRONTEND_URL', 'http://localhost:3000');
   const nodeEnv     = config.get<string>('NODE_ENV', 'development');
 
+  // Read actual service URLs from env (set in .env)
+  const authUrl    = config.get<string>('AUTH_SERVICE_URL',    'http://localhost:3001');
+  const productUrl = config.get<string>('PRODUCT_SERVICE_URL', 'http://localhost:3002');
+  const cartUrl    = config.get<string>('CART_SERVICE_URL',    'http://localhost:3003');
+  const orderUrl   = config.get<string>('ORDER_SERVICE_URL',   'http://localhost:3004');
+  const paymentUrl = config.get<string>('PAYMENT_SERVICE_URL', 'http://localhost:3005');
+
   // ── Security headers ───────────────────────────────────────────────────────
   app.use(
     helmet({
-      // Allow Swagger UI inline scripts in development
       contentSecurityPolicy: nodeEnv === 'production' ? undefined : false,
     }),
   );
@@ -30,12 +35,13 @@ async function bootstrap() {
   app.use(compression());
 
   // ── CORS ───────────────────────────────────────────────────────────────────
+  const extraOrigins = config.get<string>('CORS_ORIGINS', '')
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+
   app.enableCors({
-    origin: [
-      frontendUrl,
-      // Allow additional origins from env (comma-separated)
-      ...config.get<string>('CORS_ORIGINS', '').split(',').filter(Boolean),
-    ],
+    origin: [frontendUrl, ...extraOrigins],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: [
       'Content-Type',
@@ -46,41 +52,38 @@ async function bootstrap() {
     ],
     exposedHeaders: ['X-Total-Count', 'X-Page', 'X-Per-Page'],
     credentials: true,
-    maxAge: 86400,   // pre-flight cache: 24 h
+    maxAge: 86400,
   });
 
   // ── Global validation pipe ─────────────────────────────────────────────────
-  // The gateway itself only validates /health query params.
-  // Downstream DTO validation happens in each microservice.
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,
-      forbidNonWhitelisted: false,   // pass unknown fields through to services
+      forbidNonWhitelisted: false,
       transform: true,
     }),
   );
 
-  // ── Swagger API docs ───────────────────────────────────────────────────────
+  // ── Swagger docs (dev only) ────────────────────────────────────────────────
   if (nodeEnv !== 'production') {
     const swaggerConfig = new DocumentBuilder()
-      .setTitle('lagaao.com API')
+      .setTitle('lagaao.com API Gateway')
       .setDescription(
-        'Unified API gateway for the lagaao.com e-commerce platform.\n\n' +
-        'All routes are prefixed with `/api`. Authenticate with a JWT Bearer token ' +
-        'obtained from `POST /api/auth/login`.',
+        'All routes are prefixed with `/api`.\n\n' +
+        'Authenticate: `POST /api/auth/login` → copy the `accessToken` → ' +
+        'click **Authorize** above and paste it.',
       )
       .setVersion('1.0.0')
       .addBearerAuth(
         { type: 'http', scheme: 'bearer', bearerFormat: 'JWT', in: 'header' },
         'JWT',
       )
-      .addTag('Auth',     'Registration, login, profile')
-      .addTag('Products', 'Product catalogue and categories')
-      .addTag('Cart',     'Shopping cart management')
-      .addTag('Orders',   'Order placement and tracking')
-      .addTag('Payment',  'Razorpay payment flow')
-      .addTag('Admin',    'Admin-only management endpoints')
-      .addTag('Health',   'Gateway and service liveness probes')
+      .addTag('Auth',     'POST /api/auth/register · POST /api/auth/login · GET /api/auth/profile')
+      .addTag('Products', 'GET /api/products · GET /api/products/:slug · GET /api/categories')
+      .addTag('Cart',     'GET /api/cart · POST /api/cart/items · PUT /api/cart/items/:id')
+      .addTag('Orders',   'POST /api/orders · GET /api/orders · GET /api/orders/:id')
+      .addTag('Payment',  'POST /api/payment/create-order · POST /api/payment/verify')
+      .addTag('Health',   'GET /health · GET /health/services')
       .addServer(`http://localhost:${port}`, 'Local development')
       .build();
 
@@ -90,27 +93,40 @@ async function bootstrap() {
         persistAuthorization: true,
         displayRequestDuration: true,
         filter: true,
-        showExtensions: true,
       },
-      customSiteTitle: 'lagaao.com API Docs',
+      customSiteTitle: 'lagaao API Docs',
     });
-
-    console.log(`Swagger docs → http://localhost:${port}/api/docs`);
   }
 
   await app.listen(port);
-  console.log(`\nAPI Gateway running on http://localhost:${port}`);
-  console.log(`Environment : ${nodeEnv}`);
-  console.log(`Frontend    : ${frontendUrl}`);
-  console.log('\nRoutes proxied:');
-  console.log(`  /api/auth/*            → http://localhost:4001`);
-  console.log(`  /api/products/*        → http://localhost:4002`);
-  console.log(`  /api/categories/*      → http://localhost:4002`);
-  console.log(`  /api/cart/*            → http://localhost:4003`);
-  console.log(`  /api/orders/*          → http://localhost:4004`);
-  console.log(`  /api/admin/orders/*    → http://localhost:4004`);
-  console.log(`  /api/payment/*         → http://localhost:4005`);
-  console.log(`  /api/admin/payments/*  → http://localhost:4005`);
+
+  // ── Startup banner ─────────────────────────────────────────────────────────
+  const line  = '─'.repeat(54);
+  const green = (s: string) => `\x1b[32m${s}\x1b[0m`;
+  const cyan  = (s: string) => `\x1b[36m${s}\x1b[0m`;
+  const bold  = (s: string) => `\x1b[1m${s}\x1b[0m`;
+  const dim   = (s: string) => `\x1b[2m${s}\x1b[0m`;
+
+  console.log('');
+  console.log(bold(`  ┌${line}┐`));
+  console.log(bold(`  │`) + `  🌿  ${bold('lagaao.com')} API Gateway                        ` + bold(`│`));
+  console.log(bold(`  ├${line}┤`));
+  console.log(bold(`  │`) + `  ${green('●')} Gateway   ${bold(`http://localhost:${port}`)}                ` + bold(`│`));
+  console.log(bold(`  │`) + `  ${green('●')} Swagger   ${cyan(`http://localhost:${port}/api/docs`)}       ` + bold(`│`));
+  console.log(bold(`  │`) + `  ${green('●')} Health    ${cyan(`http://localhost:${port}/health`)}         ` + bold(`│`));
+  console.log(bold(`  ├${line}┤`));
+  console.log(bold(`  │`) + `  ${bold('Proxied routes:')}                                   ` + bold(`│`));
+  console.log(bold(`  │`) + `  ${dim('/api/auth/*')}       →  ${authUrl}          ` + bold(`│`));
+  console.log(bold(`  │`) + `  ${dim('/api/products/*')}   →  ${productUrl}       ` + bold(`│`));
+  console.log(bold(`  │`) + `  ${dim('/api/categories/*')} →  ${productUrl}       ` + bold(`│`));
+  console.log(bold(`  │`) + `  ${dim('/api/cart/*')}       →  ${cartUrl}          ` + bold(`│`));
+  console.log(bold(`  │`) + `  ${dim('/api/orders/*')}     →  ${orderUrl}         ` + bold(`│`));
+  console.log(bold(`  │`) + `  ${dim('/api/payment/*')}    →  ${paymentUrl}       ` + bold(`│`));
+  console.log(bold(`  ├${line}┤`));
+  console.log(bold(`  │`) + `  Environment : ${nodeEnv.padEnd(37)}` + bold(`│`));
+  console.log(bold(`  │`) + `  Frontend    : ${frontendUrl.padEnd(37)}` + bold(`│`));
+  console.log(bold(`  └${line}┘`));
+  console.log('');
 }
 
 void bootstrap();

@@ -1,8 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
-import { UserRole } from '@prisma/client';
 import { ExtractJwt, Strategy } from 'passport-jwt';
+
+// Defined locally — the gateway never touches the DB, so we don't import @prisma/client
+type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'CUSTOMER';
 
 export interface JwtPayload {
   sub: string;

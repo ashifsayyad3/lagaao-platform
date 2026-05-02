@@ -12,30 +12,43 @@
     "backend/services/payment-service"
   ],
   "scripts": {
-    "dev": "concurrently \"npm run dev:frontend\" \"npm run dev:gateway\" \"npm run dev:services\"",
-    "dev:frontend": "npm run dev --workspace=frontend",
-    "dev:gateway": "npm run start:dev --workspace=backend/api-gateway",
-    "dev:auth": "npm run start:dev --workspace=backend/services/auth-service",
-    "dev:product": "npm run start:dev --workspace=backend/services/product-service",
-    "dev:cart": "npm run start:dev --workspace=backend/services/cart-service",
-    "dev:order": "npm run start:dev --workspace=backend/services/order-service",
-    "dev:payment": "npm run start:dev --workspace=backend/services/payment-service",
-    "dev:services": "concurrently \"npm run dev:auth\" \"npm run dev:product\" \"npm run dev:cart\" \"npm run dev:order\" \"npm run dev:payment\"",
-    "build": "npm run build --workspaces",
-    "build:frontend": "npm run build --workspace=frontend",
-    "build:gateway": "npm run build --workspace=backend/api-gateway",
-    "test": "npm run test --workspaces",
-    "lint": "npm run lint --workspaces",
-    "db:generate": "npm run db:generate --workspace=database",
-    "db:migrate": "npm run db:migrate --workspace=database",
-    "db:studio": "npm run db:studio --workspace=database",
-    "docker:up": "docker-compose -f infrastructure/docker/docker-compose.yml up -d",
-    "docker:down": "docker-compose -f infrastructure/docker/docker-compose.yml down",
+    "dev": "concurrently --kill-others-on-fail --names \"GATEWAY,AUTH,PRODUCT,CART,ORDER,PAYMENT,FRONTEND\" --prefix-colors \"bgBlue.bold,bgGreen.bold,bgMagenta.bold,bgCyan.bold,bgYellow.bold,bgRed.bold,bgWhite.bold\" \"npm run dev:gateway\" \"npm run dev:auth\" \"npm run dev:products\" \"npm run dev:cart\" \"npm run dev:orders\" \"npm run dev:payment\" \"npm run dev:frontend\"",
+
+    "dev:backend": "concurrently --kill-others-on-fail --names \"GATEWAY,AUTH,PRODUCT,CART,ORDER,PAYMENT\" --prefix-colors \"bgBlue.bold,bgGreen.bold,bgMagenta.bold,bgCyan.bold,bgYellow.bold,bgRed.bold\" \"npm run dev:gateway\" \"npm run dev:auth\" \"npm run dev:products\" \"npm run dev:cart\" \"npm run dev:orders\" \"npm run dev:payment\"",
+
+    "dev:gateway":  "npm run start:dev --workspace=backend/api-gateway",
+    "dev:auth":     "npm run start:dev --workspace=backend/services/auth-service",
+    "dev:products": "npm run start:dev --workspace=backend/services/product-service",
+    "dev:cart":     "npm run start:dev --workspace=backend/services/cart-service",
+    "dev:orders":   "npm run start:dev --workspace=backend/services/order-service",
+    "dev:payment":  "npm run start:dev --workspace=backend/services/payment-service",
+    "dev:frontend": "npm run dev        --workspace=frontend",
+
+    "build":            "npm run build --workspaces --if-present",
+    "build:gateway":    "npm run build --workspace=backend/api-gateway",
+    "build:auth":       "npm run build --workspace=backend/services/auth-service",
+    "build:products":   "npm run build --workspace=backend/services/product-service",
+    "build:cart":       "npm run build --workspace=backend/services/cart-service",
+    "build:orders":     "npm run build --workspace=backend/services/order-service",
+    "build:payment":    "npm run build --workspace=backend/services/payment-service",
+    "build:frontend":   "npm run build --workspace=frontend",
+
+    "test":      "npm run test  --workspaces --if-present",
+    "lint":      "npm run lint  --workspaces --if-present",
+
+    "db:generate": "npx prisma generate  --schema=database/prisma/schema.prisma",
+    "db:migrate":  "npx prisma migrate dev --schema=database/prisma/schema.prisma",
+    "db:deploy":   "npx prisma migrate deploy --schema=database/prisma/schema.prisma",
+    "db:studio":   "npx prisma studio     --schema=database/prisma/schema.prisma",
+    "db:seed":     "npm run db:seed --workspace=database",
+
+    "docker:up":    "docker-compose -f infrastructure/docker/docker-compose.yml up -d",
+    "docker:down":  "docker-compose -f infrastructure/docker/docker-compose.yml down",
     "docker:build": "docker-compose -f infrastructure/docker/docker-compose.yml build"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
-    "turbo": "^2.0.0"
+    "prisma": "^5.15.0"
   },
   "engines": {
     "node": ">=20.0.0",
