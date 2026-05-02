@@ -1,0 +1,231 @@
+name: Deploy to Hostinger
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:    # allow manual trigger from GitHub UI
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false   # never cancel a running deploy mid-flight
+
+# ── Environment variables available to all jobs ──────────────────────────────
+env:
+  NODE_VERSION: "20"
+  DEPLOY_PATH: ${{ secrets.DEPLOY_PATH }}   # e.g. /home/u123456789/lagaao-platform
+
+# ─────────────────────────────────────────────────────────────────────────────
+jobs:
+
+  # ── 1. Lint & type-check (fast gate) ────────────────────────────────────────
+  lint:
+    name: Lint & type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint all workspaces
+        run: npm run lint --workspaces --if-present
+
+  # ── 2. Build all services ────────────────────────────────────────────────────
+  build:
+    name: Build all services
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install all workspace dependencies
+        run: npm ci
+
+      # Generate Prisma client so TypeScript can compile services that import it
+      - name: Generate Prisma client
+        run: npx prisma generate --schema=database/prisma/schema.prisma
+
+      # ── Build each NestJS service ──────────────────────────────────────────
+      - name: Build API Gateway
+        run: npm run build --workspace=backend/api-gateway
+
+      - name: Build Auth Service
+        run: npm run build --workspace=backend/services/auth-service
+
+      - name: Build Product Service
+        run: npm run build --workspace=backend/services/product-service
+
+      - name: Build Cart Service
+        run: npm run build --workspace=backend/services/cart-service
+
+      - name: Build Order Service
+        run: npm run build --workspace=backend/services/order-service
+
+      - name: Build Payment Service
+        run: npm run build --workspace=backend/services/payment-service
+
+      # ── Build Next.js frontend (standalone output) ─────────────────────────
+      - name: Build Next.js frontend
+        env:
+          NEXT_PUBLIC_API_URL: ${{ secrets.NEXT_PUBLIC_API_URL }}
+          NEXT_TELEMETRY_DISABLED: "1"
+        run: npm run build --workspace=frontend
+
+      # ── Upload build artefacts to be picked up by the deploy job ──────────
+      - name: Upload dist artefacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ github.sha }}
+          retention-days: 1
+          path: |
+            backend/api-gateway/dist
+            backend/services/auth-service/dist
+            backend/services/product-service/dist
+            backend/services/cart-service/dist
+            backend/services/order-service/dist
+            backend/services/payment-service/dist
+            frontend/.next
+            database/prisma/migrations
+
+  # ── 3. Deploy to Hostinger via SSH ──────────────────────────────────────────
+  deploy:
+    name: Deploy to production
+    runs-on: ubuntu-latest
+    needs: build
+    environment: production    # requires manual approval if configured in GitHub
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download build artefacts
+        uses: actions/download-artifact@v4
+        with:
+          name: dist-${{ github.sha }}
+
+      # ── Write the SSH private key to disk ─────────────────────────────────
+      - name: Set up SSH agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.HOSTINGER_SSH_KEY }}
+
+      - name: Add Hostinger to known_hosts
+        run: |
+          ssh-keyscan -p ${{ secrets.HOSTINGER_SSH_PORT || 22 }} \
+            ${{ secrets.HOSTINGER_SSH_HOST }} >> ~/.ssh/known_hosts
+
+      # ── Sync source code to server (excludes node_modules, .git) ──────────
+      - name: Rsync source to server
+        run: |
+          rsync -az --delete \
+            --exclude='node_modules' \
+            --exclude='.git' \
+            --exclude='.github' \
+            --exclude='infrastructure' \
+            --exclude='*.md' \
+            --exclude='.env*' \
+            -e "ssh -p ${{ secrets.HOSTINGER_SSH_PORT || 22 }}" \
+            ./ \
+            ${{ secrets.HOSTINGER_SSH_USER }}@${{ secrets.HOSTINGER_SSH_HOST }}:${{ env.DEPLOY_PATH }}/
+
+      # ── Remote deployment steps ────────────────────────────────────────────
+      - name: Remote — install prod deps + migrate + reload PM2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.HOSTINGER_SSH_HOST }}
+          username: ${{ secrets.HOSTINGER_SSH_USER }}
+          key: ${{ secrets.HOSTINGER_SSH_KEY }}
+          port: ${{ secrets.HOSTINGER_SSH_PORT || 22 }}
+          script_stop: true   # abort on first error
+          script: |
+            set -e
+            cd ${{ env.DEPLOY_PATH }}
+
+            echo "──────────────────────────────────────────────"
+            echo "Deploy started at $(date)"
+            echo "Commit: ${{ github.sha }}"
+            echo "──────────────────────────────────────────────"
+
+            # ── Install production dependencies ───────────────────────────
+            echo "[1/5] Installing production dependencies..."
+            npm ci --omit=dev
+
+            # ── Reinstall dev-deps briefly for Prisma generate + build ────
+            # (Prisma CLI is a devDep; we only need it for the generate step)
+            echo "[2/5] Generating Prisma client..."
+            npm install --workspace=database --save-dev prisma 2>/dev/null || true
+            npx prisma generate --schema=database/prisma/schema.prisma
+
+            # ── Run database migrations ───────────────────────────────────
+            echo "[3/5] Running Prisma migrations..."
+            npx prisma migrate deploy \
+              --schema=database/prisma/schema.prisma
+
+            # ── Copy Next.js standalone static files ──────────────────────
+            # standalone/server.js needs public/ and .next/static/ alongside it
+            echo "[4/5] Copying Next.js static assets..."
+            cp -r frontend/public \
+                  frontend/.next/standalone/public 2>/dev/null || true
+            cp -r frontend/.next/static \
+                  frontend/.next/standalone/.next/static 2>/dev/null || true
+
+            # ── Create logs directory ─────────────────────────────────────
+            mkdir -p logs
+
+            # ── Reload PM2 (zero-downtime rolling restart) ────────────────
+            echo "[5/5] Reloading PM2 processes..."
+            if pm2 list | grep -q lagaao-gateway; then
+              pm2 reload ecosystem.config.cjs --update-env
+            else
+              pm2 start ecosystem.config.cjs
+            fi
+
+            pm2 save
+
+            # ── Smoke test: hit the gateway health endpoint ───────────────
+            echo "Waiting for gateway to be healthy..."
+            for i in $(seq 1 12); do
+              STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:4000/health)
+              if [ "$STATUS" = "200" ]; then
+                echo "Gateway healthy (attempt $i)"
+                break
+              fi
+              echo "Attempt $i: got $STATUS, retrying in 5s..."
+              sleep 5
+            done
+
+            if [ "$STATUS" != "200" ]; then
+              echo "ERROR: Gateway failed health check after 60s"
+              pm2 logs lagaao-gateway --lines 30 --nostream
+              exit 1
+            fi
+
+            echo "──────────────────────────────────────────────"
+            echo "Deploy finished at $(date)"
+            pm2 status
+            echo "──────────────────────────────────────────────"
+
+  # ── 4. Post-deploy Slack / Discord notification (optional) ──────────────────
+  notify:
+    name: Notify on failure
+    runs-on: ubuntu-latest
+    needs: [lint, build, deploy]
+    if: failure()
+    steps:
+      - name: Post failure notice
+        run: |
+          echo "Pipeline failed for commit ${{ github.sha }} by ${{ github.actor }}"
+          echo "Branch: ${{ github.ref_name }}"
+          # Uncomment and configure to send to Slack/Discord:
+          # curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
+          #   -H 'Content-Type: application/json' \
+          #   -d '{"text":"❌ lagaao.com deploy failed for `${{ github.sha }}` by ${{ github.actor }}"}'
